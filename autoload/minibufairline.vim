@@ -265,11 +265,7 @@ endfunction
 
 function! s:render(bufs) abort
   let l:pl        = g:miniBufAirlinePowerline
-  " has('tablineat') is the official check but returns 0 on Neovim and some
-  " Vim builds even though %N@Func@ works fine.  Cast the net wider.
-  let l:clickable = has('tablineat') || has('nvim')
-        \ || (v:version > 800)
-        \ || (v:version == 704 && has('patch-2311'))
+  let l:clickable = has('tablineat')
   let l:line      = ''
   let l:prev_type = ''
 
