@@ -267,28 +267,22 @@ function! s:render(bufs) abort
   let l:pl        = g:miniBufAirlinePowerline
   let l:clickable = has('tablineat')
   let l:line      = ''
-  let l:prev_type = ''
 
   for l:i in range(len(a:bufs))
     let l:b    = a:bufs[l:i]
     let l:st   = s:buf_state(l:b)
     let l:type = s:buf_type(l:st)
 
-    " ── Start click region (wraps separator + content) ────────────────────
-    if l:clickable
-      let l:line .= '%' . l:b . '@minibufairline#switch@'
+    " Type of the next tab (or fill) — needed for trailing separator colour
+    if l:i + 1 < len(a:bufs)
+      let l:next_type = s:buf_type(s:buf_state(a:bufs[l:i + 1]))
+    else
+      let l:next_type = 'fill'
     endif
 
-    " ── Separator before this tab ──────────────────────────────────────────
-    if !empty(l:prev_type)
-      let l:sep_hl   = 'MBA_sep_' . l:prev_type . '_' . l:type
-      let l:sep_char = (l:prev_type ==# l:type) ? s:G('sep_soft') : s:G('sep_hard')
-      if l:pl
-        let l:line .= '%#' . l:sep_hl . '#' . l:sep_char
-      else
-        " ASCII fallback: just a space-padded pipe
-        let l:line .= ' ' . s:G('sep_soft') . ' '
-      endif
+    " ── Start click region ─────────────────────────────────────────────────
+    if l:clickable
+      let l:line .= '%' . l:b . '@minibufairline#switch@'
     endif
 
     " ── Tab content ────────────────────────────────────────────────────────
@@ -315,20 +309,25 @@ function! s:render(bufs) abort
 
     let l:line .= ' '
 
+    " ── Trailing separator (inside this tab's click region) ────────────────
+    " The arrow glyph visually "comes out of" this tab, so clicking it
+    " should switch to THIS buffer, not the next one.
+    if l:pl
+      let l:sep_hl   = 'MBA_sep_' . l:type . '_' . l:next_type
+      let l:sep_char = (l:type ==# l:next_type) ? s:G('sep_soft') : s:G('sep_hard')
+      let l:line .= '%#' . l:sep_hl . '#' . l:sep_char
+    else
+      " ASCII: pipe separator between tabs (not inside the last tab)
+      if l:next_type !=# 'fill'
+        let l:line .= '%#MBA_fill# ' . s:G('sep_soft') . ' '
+      endif
+    endif
+
     " ── End click region ───────────────────────────────────────────────────
     if l:clickable
       let l:line .= '%X'
     endif
-
-    let l:prev_type = l:type
   endfor
-
-  " ── Trailing separator into fill ──────────────────────────────────────────
-  if !empty(l:prev_type)
-    if l:pl
-      let l:line .= '%#MBA_sep_' . l:prev_type . '_fill#' . s:G('sep_hard')
-    endif
-  endif
 
   " ── Fill ─────────────────────────────────────────────────────────────────
   let l:line .= '%#MBA_fill#%='
