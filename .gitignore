@@ -1,0 +1,7 @@
+# Vim swap / backup files
+*.swp
+*.swo
+*~
+
+# Claude Code session files
+.claude/
