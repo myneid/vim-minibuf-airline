@@ -51,7 +51,7 @@ let g:miniBufAirlineAutoStart    = get(g:, 'miniBufAirlineAutoStart',    1)
 let g:miniBufAirlinePowerline    = get(g:, 'miniBufAirlinePowerline',    1)
 
 " Show buffer numbers before the filename
-let g:miniBufAirlineShowBufNr    = get(g:, 'miniBufAirlineShowBufNr',    0)
+let g:miniBufAirlineShowBufNr    = get(g:, 'miniBufAirlineShowBufNr',    1)
 
 " Show modified indicator (● with powerline font, + without)
 let g:miniBufAirlineShowModified = get(g:, 'miniBufAirlineShowModified', 1)
