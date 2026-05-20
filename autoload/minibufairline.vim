@@ -101,12 +101,14 @@ function! minibufairline#enable() abort
   set showtabline=2
   set tabline=%!minibufairline#tabline()
   let s:enabled = 1
+  call s:setup_delete_key()
 endfunction
 
 function! minibufairline#disable() abort
   set showtabline=1
   set tabline=
   let s:enabled = 0
+  call s:teardown_delete_key()
 endfunction
 
 function! minibufairline#toggle() abort
@@ -190,6 +192,26 @@ function! minibufairline#tabline() abort
     return '%#MBA_fill#'
   endif
   return s:render(l:bufs)
+endfunction
+
+" ─────────────────────────────────────────────────────────────────────────────
+" Delete-key mapping helpers
+" ─────────────────────────────────────────────────────────────────────────────
+
+let s:active_delete_key = ''
+
+function! s:setup_delete_key() abort
+  let l:key = get(g:, 'miniBufAirlineDeleteKey', 'd')
+  if empty(l:key) | return | endif
+  execute 'nnoremap <silent> ' . l:key . ' :call minibufairline#close_buf(bufnr("%"))<CR>'
+  let s:active_delete_key = l:key
+endfunction
+
+function! s:teardown_delete_key() abort
+  if !empty(s:active_delete_key)
+    execute 'nunmap ' . s:active_delete_key
+    let s:active_delete_key = ''
+  endif
 endfunction
 
 " ─────────────────────────────────────────────────────────────────────────────

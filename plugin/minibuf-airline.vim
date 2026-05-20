@@ -68,6 +68,11 @@ let g:miniBufAirlineCycleAround  = get(g:, 'miniBufAirlineCycleAround',  1)
 " Sort listed buffers: 'number' (default) or 'name'
 let g:miniBufAirlineSortBy       = get(g:, 'miniBufAirlineSortBy',    'number')
 
+" Normal-mode key to close the current buffer (mimics MiniBufExpl 'd' in its
+" window). Set to '' to disable. Default 'd' matches original behaviour; set
+" to e.g. '<Leader>d' if you need 'd' for editing while in the tabline area.
+let g:miniBufAirlineDeleteKey    = get(g:, 'miniBufAirlineDeleteKey', 'd')
+
 " ─────────────────────────────────────────────────────────────────────────────
 " Commands
 " ─────────────────────────────────────────────────────────────────────────────
