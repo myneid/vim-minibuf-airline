@@ -1,0 +1,266 @@
+*minibuf-airline.txt*  Modern buffer tabline with airline/powerline style
+
+Copyright: (C) 2002 & 2003  Bindu Wavell (original minibufexpl.vim)
+           (C) 2010        Oliver Uvman
+           (C) 2010        Danielle Church
+           (C) 2010        Stephan Sokolow
+           (C) 2010 & 2011 Federico Holgado (fholgado rewrite)
+           (C) 2013        Techlive Zheng (v6.5.0 bugfixes)
+License:   Permission is hereby granted to use and distribute this code,
+           with or without modifications, provided that this copyright
+           notice is copied with it.  See |minibuf-airline-license|.
+
+==============================================================================
+CONTENTS                                          *minibuf-airline-contents*
+
+  1. Introduction .............. |minibuf-airline-intro|
+  2. Requirements .............. |minibuf-airline-requirements|
+  3. Installation .............. |minibuf-airline-install|
+  4. Options ................... |minibuf-airline-options|
+  5. Commands .................. |minibuf-airline-commands|
+  6. Suggested mappings ........ |minibuf-airline-mappings|
+  7. Highlight groups .......... |minibuf-airline-highlights|
+  8. Colours / theming ......... |minibuf-airline-colours|
+  9. History ................... |minibuf-airline-history|
+ 10. License ................... |minibuf-airline-license|
+
+==============================================================================
+1. INTRODUCTION                                     *minibuf-airline-intro*
+
+minibuf-airline replaces the Vim tabline with a compact buffer list that
+looks like the tabline section of vim-airline: powerline arrow separators,
+colour-coded states, and click-to-switch support.
+
+Visual example (with a Nerd Font / Powerline-patched font): >
+
+  ▏ init.lua  ▏ README.md ●  ▏█ plugin.lua ×█▌▏ util.lua ▏         ▏
+<
+  ─ dim/grey tabs   = buffers loaded but not visible
+  ─ medium tabs     = buffers visible in a non-active window
+  ─ bright blue tab = the buffer your cursor is in (active)
+  ─ ●               = unsaved changes
+  ─ ×               = close button (active tab only, click or middle-click)
+  ─                = powerline separator between tabs of different colours
+  ─                = thin separator between adjacent same-colour tabs
+
+The plugin uses Vim's built-in |'tabline'| option — no split windows are
+created, so every line of your editing area stays available.
+
+==============================================================================
+2. REQUIREMENTS                                  *minibuf-airline-requirements*
+
+  - Vim 7.4 or later
+  - Patch 7.4.2311 for mouse click support in the tabline (optional but
+    recommended — the tabline is still fully functional without it)
+  - A Nerd Font or Powerline-patched font for the arrow glyphs.
+    See: https://www.nerdfonts.com/
+    Without one, set |g:miniBufAirlinePowerline| = 0 for ASCII mode.
+
+==============================================================================
+3. INSTALLATION                                    *minibuf-airline-install*
+
+With vim-plug: >
+  Plug 'your-user/minibuf-airline'
+<
+With packer.nvim: >
+  use 'your-user/minibuf-airline'
+<
+Manual: copy the `plugin/`, `autoload/`, and `doc/` directories into your
+`~/.vim/` folder, then run `:helptags ~/.vim/doc`.
+
+==============================================================================
+4. OPTIONS                                          *minibuf-airline-options*
+
+All options can be set in your |vimrc| before the plugin loads.
+
+------------------------------------------------------------------------------
+*g:miniBufAirlineAutoStart*          (default: 1)
+
+Enable the plugin automatically on Vim startup. Set to 0 if you prefer to
+enable it manually with |:MBAEnable|.
+
+------------------------------------------------------------------------------
+*g:miniBufAirlinePowerline*          (default: 1)
+
+Use powerline/Nerd-Font arrow glyphs for separators. Set to 0 to fall back
+to plain ASCII separators (a pipe character between tabs).
+
+------------------------------------------------------------------------------
+*g:miniBufAirlineShowBufNr*          (default: 0)
+
+Prefix each buffer tab with the buffer number.  Useful when you use
+`:buffer N` or |:MBANext| counts a lot. >
+  let g:miniBufAirlineShowBufNr = 1
+<
+------------------------------------------------------------------------------
+*g:miniBufAirlineShowModified*       (default: 1)
+
+Show a modified indicator (● or +) on tabs with unsaved changes.
+
+------------------------------------------------------------------------------
+*g:miniBufAirlineShowClose*          (default: 1)
+
+Show a × close button on the active buffer tab.  Clicking it (or
+middle-clicking any tab) closes that buffer without disturbing window layout.
+
+------------------------------------------------------------------------------
+*g:miniBufAirlineMinBufs*            (default: 1)
+
+Minimum number of listed buffers required before the tabline is shown.
+Set to 2 to hide the tabline when only one buffer is open (closer to the
+original MiniBufExpl behaviour).
+
+------------------------------------------------------------------------------
+*g:miniBufAirlineCycleAround*        (default: 1)
+
+Wrap around when cycling past the first or last buffer with |:MBANext| /
+|:MBAPrev|.
+
+------------------------------------------------------------------------------
+*g:miniBufAirlineSortBy*             (default: 'number')
+
+How to order buffer tabs. Options:
+  'number'  Buffer number order (stable; matches the original plugin).
+  'name'    Alphabetical by filename tail.
+
+==============================================================================
+5. COMMANDS                                        *minibuf-airline-commands*
+
+:MBAEnable                                                       *:MBAEnable*
+  Enable the plugin (set up tabline and highlights).
+
+:MBADisable                                                     *:MBADisable*
+  Disable the plugin and restore Vim's built-in tabline behaviour.
+
+:MBAToggle                                                       *:MBAToggle*
+  Toggle the plugin on/off.
+
+:MBANext                                                           *:MBANext*
+  Switch to the next listed buffer.
+
+:MBAPrev                                                           *:MBAPrev*
+  Switch to the previous listed buffer.
+
+:MBAClose                                                         *:MBAClose*
+  Close the current buffer without destroying window layout.  Any window
+  that was showing this buffer is switched to the nearest other listed
+  buffer first.
+
+==============================================================================
+6. SUGGESTED MAPPINGS                              *minibuf-airline-mappings*
+
+The plugin does not add any key mappings by default.  Paste these into your
+|vimrc| to get a workflow similar to the original MiniBufExpl: >
+
+  " Tab / Shift-Tab to cycle buffers
+  nnoremap <silent> <Tab>   :MBANext<CR>
+  nnoremap <silent> <S-Tab> :MBAPrev<CR>
+
+  " Leader-w to close without destroying layout
+  nnoremap <silent> <Leader>w :MBAClose<CR>
+
+  " Leader-b to toggle the tabline
+  nnoremap <silent> <Leader>b :MBAToggle<CR>
+<
+Mouse: if your terminal supports it (|'ttymouse'| set, patch 7.4.2311):
+  - Left-click  a tab → switch to that buffer
+  - Middle-click a tab → close that buffer
+
+==============================================================================
+7. HIGHLIGHT GROUPS                               *minibuf-airline-highlights*
+
+You can override any of these groups in your colorscheme or vimrc.
+Overrides should be set *after* `:colorscheme` or inside a ColorScheme
+autocmd so they survive theme changes. >
+
+  autocmd ColorScheme * hi MBA_act guibg=#ff0000
+<
+*MBA_norm*      Unlisted / background buffers (not visible anywhere).
+*MBA_normmod*   Same, with unsaved changes.
+*MBA_vis*       Visible in a non-active window.
+*MBA_vismod*    Same, with unsaved changes.
+*MBA_act*       Active buffer (where the cursor is). Bold.
+*MBA_actmod*    Active + unsaved changes. Bold.
+*MBA_fill*      Empty space after all buffer tabs.
+
+Separator groups are auto-generated as MBA_sep_{left}_{right} for every
+combination of the above types, e.g. MBA_sep_norm_act.  You do not usually
+need to touch these, but you can override them if required.
+
+==============================================================================
+8. COLOURS / THEMING                               *minibuf-airline-colours*
+
+The default palette is inspired by the vim-airline `dark` theme and works
+well on any dark background.  For a light background or a different accent
+colour, override the highlight groups in your vimrc (see section 7).
+
+Example — change the active-buffer accent to green: >
+  autocmd ColorScheme * hi MBA_act      guifg=#ffffff guibg=#008000 cterm=bold
+  autocmd ColorScheme * hi MBA_actmod   guifg=#ffffff guibg=#006000 cterm=bold
+<
+If you use vim-airline and want the tabline to match your airline theme
+exactly, you can read `g:airline#themes#{g:airline_theme}#palette` and map
+the colours to the MBA_* groups. (A future version of this plugin may do
+this automatically.)
+
+==============================================================================
+9. HISTORY                                          *minibuf-airline-history*
+
+2001-2003 — Bindu Wavell (original) ~
+
+Bindu Wavell wrote the first minibufexpl.vim around 2001 and published it on
+vim.org (script #159).  The concept: a slim horizontal strip showing every
+open buffer as [N:filename], with `+` for modified and `*` for visible,
+using a real Vim split window.
+
+2010-2011 — Community patches ~
+
+As Vim evolved, several contributors patched the original:
+Oliver Uvman, Danielle Church, and Stephan Sokolow all contributed fixes.
+Federico Holgado (fholgado) began a full rewrite during this period.
+
+2012 — Federico Holgado's rewrite ~
+
+https://github.com/fholgado/minibufexpl.vim
+
+Holgado's fork distinguished *active* buffers from *visible* ones, added
+six colour-coded highlight groups, smarter duplicate-filename display, and
+better split/tab handling.  This is the version most users know; it has
+over 1 000 stars on GitHub.
+
+2013 — Techlive Zheng, v6.5.0 ~
+
+https://github.com/techlivezheng/vim-plugin-minibufexpl
+
+Development moved to Techlive Zheng's fork.  v6.5.0 fixed the deepest
+bugs: tab-local MBE windows, correct `:bd`/`:bwipe` handling, `QuitPre`
+edge cases, MRU buffer cycling, and window-history preservation for
+compatibility with plugins like NERDTree.  Released June 2013; no further
+public releases followed.
+
+2026 — minibuf-airline (this plugin) ~
+
+A ground-up rewrite that keeps the spirit of the original while modernising
+the implementation: Vim's native |'tabline'| (no split windows), powerline/
+Nerd-Font arrow glyphs, airline-inspired highlight groups, and mouse click
+support via the `%N@func@` tabline mechanism.
+
+==============================================================================
+10. LICENSE                                         *minibuf-airline-license*
+
+Permission is hereby granted to use and distribute this code, with or
+without modifications, provided that this copyright notice is copied with
+it.  Like anything else that's free, minibuf-airline.vim is provided *as
+is* and comes with no warranty of any kind, either expressed or implied.
+In no event will the copyright holders be liable for any damages resulting
+from the use of this software.
+
+Copyright holders: >
+  Copyright (C) 2002 & 2003  Bindu Wavell
+  Copyright (C) 2010         Oliver Uvman
+  Copyright (C) 2010         Danielle Church
+  Copyright (C) 2010         Stephan Sokolow
+  Copyright (C) 2010 & 2011  Federico Holgado
+  Copyright (C) 2013         Techlive Zheng
+<
+vim:tw=78:ts=8:ft=help:norl:
