@@ -62,6 +62,7 @@ let s:BG = {
       \ 'act':     [ 31, '#0087af'],
       \ 'actmod':  [166, '#d75f00'],
       \ 'fill':    [233, '#121212'],
+      \ 'prefix':  [ 24, '#005f87'],
       \ }
 
 let s:FG = {
@@ -72,6 +73,7 @@ let s:FG = {
       \ 'act':     [231, '#ffffff'],
       \ 'actmod':  [231, '#ffffff'],
       \ 'fill':    [239, '#4e4e4e'],
+      \ 'prefix':  [231, '#ffffff'],
       \ }
 
 " Soft-separator foreground: slightly lighter than the shared background,
@@ -84,6 +86,7 @@ let s:SOFT_SEP_FG = {
       \ 'act':     [ 38, '#00afd7'],
       \ 'actmod':  [172, '#d78700'],
       \ 'fill':    [235, '#262626'],
+      \ 'prefix':  [ 26, '#005faf'],
       \ }
 
 " ─────────────────────────────────────────────────────────────────────────────
@@ -185,6 +188,10 @@ function! minibufairline#switch(bufnr, clicks, button, mod) abort
   endif
 endfunction
 
+" Click handler for the prefix label — absorbs the click, does nothing.
+function! minibufairline#noop(...) abort
+endfunction
+
 " The tabline expression: called by Vim on every redraw.
 function! minibufairline#tabline() abort
   let l:bufs = s:listed_buffers()
@@ -267,6 +274,24 @@ function! s:render(bufs) abort
   let l:pl        = g:miniBufAirlinePowerline
   let l:clickable = has('tablineat')
   let l:line      = ''
+
+  " ── Prefix label ───────────────────────────────────────────────────────────
+  " Sits at position 0 and owns the click there, preventing Vim's built-in
+  " 'create new tab page' from firing when the user clicks near the left edge.
+  let l:pfx = get(g:, 'miniBufAirlinePrefix', ' ≡ ')
+  if !empty(l:pfx)
+    let l:first_type = s:buf_type(s:buf_state(a:bufs[0]))
+    if l:clickable
+      let l:line .= '%0@minibufairline#noop@'
+    endif
+    let l:line .= '%#MBA_prefix#' . l:pfx
+    if l:pl
+      let l:line .= '%#MBA_sep_prefix_' . l:first_type . '#' . s:G('sep_hard')
+    endif
+    if l:clickable
+      let l:line .= '%X'
+    endif
+  endif
 
   for l:i in range(len(a:bufs))
     let l:b    = a:bufs[l:i]

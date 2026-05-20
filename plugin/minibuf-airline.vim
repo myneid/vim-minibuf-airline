@@ -68,6 +68,11 @@ let g:miniBufAirlineCycleAround  = get(g:, 'miniBufAirlineCycleAround',  1)
 " Sort listed buffers: 'number' (default) or 'name'
 let g:miniBufAirlineSortBy       = get(g:, 'miniBufAirlineSortBy',    'number')
 
+" Label shown at the very left of the tabline before all buffer tabs.
+" Prevents Vim's built-in 'new tab on click' from firing at position 0.
+" Set to '' to disable (not recommended — first-tab click may misbehave).
+let g:miniBufAirlinePrefix       = get(g:, 'miniBufAirlinePrefix',      ' ≡ ')
+
 " Normal-mode key to close the current buffer. Set to '' to disable.
 " Note: unlike the original MiniBufExpl (which used a real window), this plugin
 " uses vim's tabline so any key binding here is global — avoid single letters
