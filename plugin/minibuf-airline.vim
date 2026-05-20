@@ -68,10 +68,11 @@ let g:miniBufAirlineCycleAround  = get(g:, 'miniBufAirlineCycleAround',  1)
 " Sort listed buffers: 'number' (default) or 'name'
 let g:miniBufAirlineSortBy       = get(g:, 'miniBufAirlineSortBy',    'number')
 
-" Normal-mode key to close the current buffer (mimics MiniBufExpl 'd' in its
-" window). Set to '' to disable. Default 'd' matches original behaviour; set
-" to e.g. '<Leader>d' if you need 'd' for editing while in the tabline area.
-let g:miniBufAirlineDeleteKey    = get(g:, 'miniBufAirlineDeleteKey', 'd')
+" Normal-mode key to close the current buffer. Set to '' to disable.
+" Note: unlike the original MiniBufExpl (which used a real window), this plugin
+" uses vim's tabline so any key binding here is global — avoid single letters
+" like 'd' that conflict with vim motions. Default is '<Delete>' (the Del key).
+let g:miniBufAirlineDeleteKey    = get(g:, 'miniBufAirlineDeleteKey', '<Delete>')
 
 " ─────────────────────────────────────────────────────────────────────────────
 " Commands

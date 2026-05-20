@@ -201,7 +201,7 @@ endfunction
 let s:active_delete_key = ''
 
 function! s:setup_delete_key() abort
-  let l:key = get(g:, 'miniBufAirlineDeleteKey', 'd')
+  let l:key = get(g:, 'miniBufAirlineDeleteKey', '<Delete>')
   if empty(l:key) | return | endif
   execute 'nnoremap <silent> ' . l:key . ' :call minibufairline#close_buf(bufnr("%"))<CR>'
   let s:active_delete_key = l:key
