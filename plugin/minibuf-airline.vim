@@ -99,21 +99,21 @@ augroup MiniBufAirline
   " Refresh highlights whenever the colorscheme changes
   autocmd ColorScheme * call minibufairline#setup_highlights()
 
-  " Refresh the tabline on any buffer event that could change display
-  autocmd BufEnter,BufLeave,BufAdd,BufDelete,BufWritePost *
+  " Refresh the window on any event that could change the buffer list or state
+  autocmd BufEnter,BufLeave,BufAdd,BufDelete,BufWritePost,TabEnter *
         \ call minibufairline#refresh()
 
   " BufModifiedSet fires when the modified flag changes (Vim 8.2+)
   if exists('##BufModifiedSet')
     autocmd BufModifiedSet * call minibufairline#refresh()
   else
-    " Fallback: catch modifications via TextChanged / InsertLeave
     autocmd TextChanged,TextChangedI,InsertLeave *
           \ call minibufairline#refresh()
   endif
 
-  " Also refresh when switching tabs (tab-local buffer sets)
-  autocmd TabEnter * call minibufairline#refresh()
+  " Keep the MBE window at 1 line if another split tries to resize it
+  autocmd WinEnter * if winnr() != bufwinnr(get(g:, '_mba_bufnr', -1))
+        \ | call minibufairline#refresh() | endif
 augroup END
 
 " ─────────────────────────────────────────────────────────────────────────────

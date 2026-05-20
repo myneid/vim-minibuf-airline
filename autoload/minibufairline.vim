@@ -1,7 +1,8 @@
 " autoload/minibufairline.vim - Core logic for minibuf-airline
 "
-" All public functions use the minibufairline# namespace so Vim lazy-loads
-" this file on first call rather than at startup.
+" Uses a 1-line split window (like the original MiniBufExpl) instead of
+" &tabline.  This gives reliable mouse-click support on all Vim versions
+" without needing the tablineat feature.
 
 let s:save_cpo = &cpo
 set cpo&vim
@@ -9,15 +10,6 @@ set cpo&vim
 " ─────────────────────────────────────────────────────────────────────────────
 " Glyphs
 " ─────────────────────────────────────────────────────────────────────────────
-"
-" Powerline private-use block (requires a patched / Nerd Font):
-"   U+E0B0  solid right-arrow   ❯ (hard left separator)
-"   U+E0B1  thin  right-arrow   ❯ (soft left separator, same bg)
-"   U+E0B2  solid left-arrow    ❮ (hard right separator)
-"   U+E0B3  thin  left-arrow    ❮ (soft right separator, same bg)
-"   U+E0A2  lock icon
-"   U+25CF  black circle        ● (modified indicator, no font needed)
-"   U+00D7  multiplication sign × (close, no font needed)
 
 let s:GL = {
       \ 'sep_hard': "",
@@ -41,19 +33,8 @@ endfunction
 
 " ─────────────────────────────────────────────────────────────────────────────
 " Colour palette
-"
-" Each "type" maps to a fg+bg pair in both cterm and gui colour spaces.
-" Types:
-"   norm      - unlisted / background buffer
-"   normmod   - norm + unsaved changes
-"   vis       - visible in a non-active window
-"   vismod    - vis  + unsaved changes
-"   act       - the buffer currently under the cursor
-"   actmod    - act  + unsaved changes
-"   fill      - empty space after all tabs
 " ─────────────────────────────────────────────────────────────────────────────
 
-" [cterm_index, '#rrggbb']
 let s:BG = {
       \ 'norm':    [235, '#262626'],
       \ 'normmod': [235, '#262626'],
@@ -76,8 +57,6 @@ let s:FG = {
       \ 'prefix':  [231, '#ffffff'],
       \ }
 
-" Soft-separator foreground: slightly lighter than the shared background,
-" so the thin glyph is subtly visible between same-type tabs.
 let s:SOFT_SEP_FG = {
       \ 'norm':    [237, '#3a3a3a'],
       \ 'normmod': [237, '#3a3a3a'],
@@ -93,7 +72,13 @@ let s:SOFT_SEP_FG = {
 " State
 " ─────────────────────────────────────────────────────────────────────────────
 
-let s:enabled = 0
+let s:enabled       = 0
+let s:mbe_bufnr     = -1   " bufnr of the minibuf-airline window buffer
+let s:last_real_buf = -1   " last non-MBE buffer that was active
+let s:regions       = []   " [{start, end, hl, buf}] byte ranges for matching
+let s:updating      = 0    " re-entrancy guard
+
+let s:MBE_NAME = '-MiniBufAirline-'
 
 " ─────────────────────────────────────────────────────────────────────────────
 " Public API
@@ -101,17 +86,15 @@ let s:enabled = 0
 
 function! minibufairline#enable() abort
   call minibufairline#setup_highlights()
-  set showtabline=2
-  set tabline=%!minibufairline#tabline()
-  let s:enabled = 1
+  call s:open_window()
   call s:setup_delete_key()
+  let s:enabled = 1
 endfunction
 
 function! minibufairline#disable() abort
-  set showtabline=1
-  set tabline=
-  let s:enabled = 0
+  call s:close_window()
   call s:teardown_delete_key()
+  let s:enabled = 0
 endfunction
 
 function! minibufairline#toggle() abort
@@ -123,18 +106,22 @@ function! minibufairline#toggle() abort
 endfunction
 
 function! minibufairline#refresh() abort
-  if s:enabled
-    redrawtabline
+  if !s:enabled || s:updating | return | endif
+  " Track which real buffer was last active
+  if bufnr('%') != s:mbe_bufnr
+    let s:last_real_buf = bufnr('%')
   endif
+  call s:update()
 endfunction
 
 function! minibufairline#cycle(dir) abort
   let l:bufs = s:listed_buffers()
   if empty(l:bufs) | return | endif
-  let l:cur = bufnr('%')
+  " If cursor is in MBE window, operate on s:last_real_buf
+  let l:cur = (bufnr('%') == s:mbe_bufnr) ? s:last_real_buf : bufnr('%')
   let l:idx = index(l:bufs, l:cur)
   if l:idx < 0
-    execute 'buffer ' . l:bufs[0]
+    call s:switch_to(l:bufs[0])
     return
   endif
   let l:n = l:idx + a:dir
@@ -143,28 +130,24 @@ function! minibufairline#cycle(dir) abort
   else
     let l:n = max([0, min([len(l:bufs) - 1, l:n])])
   endif
-  execute 'buffer ' . l:bufs[l:n]
+  call s:switch_to(l:bufs[l:n])
 endfunction
 
-" Close a buffer without destroying window layout.
-" Switches windows showing that buffer to an adjacent listed buffer first.
-function! minibufairline#close_buf(bufnr) abort
-  let l:bufs   = s:listed_buffers()
-  let l:target = a:bufnr
+" Close a buffer, switching any window showing it to a neighbour first.
+function! minibufairline#close_buf(target) abort
+  let l:bufs = s:listed_buffers()
+  let l:idx  = index(l:bufs, a:target)
+  if l:idx < 0 | return | endif
 
-  " Find a replacement buffer (prefer the next one, else the previous)
-  let l:idx = index(l:bufs, l:target)
   if len(l:bufs) > 1
     let l:replacement = (l:idx < len(l:bufs) - 1)
-          \ ? l:bufs[l:idx + 1]
-          \ : l:bufs[l:idx - 1]
+          \ ? l:bufs[l:idx + 1] : l:bufs[l:idx - 1]
   else
     let l:replacement = -1
   endif
 
-  " Switch every window showing the target buffer to the replacement
   for l:w in range(1, winnr('$'))
-    if winbufnr(l:w) == l:target
+    if winbufnr(l:w) == a:target && l:w != bufwinnr(s:mbe_bufnr)
       execute l:w . 'wincmd w'
       if l:replacement > 0
         execute 'buffer ' . l:replacement
@@ -174,31 +157,58 @@ function! minibufairline#close_buf(bufnr) abort
     endif
   endfor
 
-  execute 'bdelete ' . l:target
-  call minibufairline#refresh()
+  execute 'bdelete ' . a:target
 endfunction
 
-" Called by Vim's %N@func@ tabline click mechanism.
-" button: 'l' left, 'm' middle, 'r' right
-function! minibufairline#switch(bufnr, clicks, button, mod) abort
-  if a:button ==# 'm'
-    call minibufairline#close_buf(a:bufnr)
-  else
-    execute 'buffer ' . a:bufnr
+" Called when user presses Enter / o / double-clicks in the MBE window.
+function! minibufairline#select(split) abort
+  if bufnr('%') != s:mbe_bufnr | return | endif
+  let l:target = s:buf_at_col(col('.'))
+  if l:target < 0 | return | endif
+  wincmd p
+  if winnr() == bufwinnr(s:mbe_bufnr)
+    " wincmd p landed back in MBE; find a real window
+    for l:w in range(1, winnr('$'))
+      if l:w != bufwinnr(s:mbe_bufnr)
+        execute l:w . 'wincmd w'
+        break
+      endif
+    endfor
+  endif
+  if a:split == 0
+    execute 'buffer ' . l:target
+  elseif a:split == 1
+    execute 'split | buffer ' . l:target
+  elseif a:split == 2
+    execute 'vsplit | buffer ' . l:target
   endif
 endfunction
 
-" Click handler for the prefix label — absorbs the click, does nothing.
-function! minibufairline#noop(...) abort
+" Close whichever buffer the cursor is over in the MBE window.
+function! minibufairline#close_at_cursor() abort
+  if bufnr('%') != s:mbe_bufnr | return | endif
+  let l:target = s:buf_at_col(col('.'))
+  if l:target > 0
+    call minibufairline#close_buf(l:target)
+  endif
 endfunction
 
-" The tabline expression: called by Vim on every redraw.
-function! minibufairline#tabline() abort
-  let l:bufs = s:listed_buffers()
-  if len(l:bufs) < g:miniBufAirlineMinBufs
-    return '%#MBA_fill#'
-  endif
-  return s:render(l:bufs)
+" Move cursor left/right between buffer entries inside the MBE window.
+function! minibufairline#move_cursor(dir) abort
+  if bufnr('%') != s:mbe_bufnr | return | endif
+  let l:cur_buf = s:buf_at_col(col('.'))
+  let l:bufs    = s:listed_buffers()
+  let l:idx     = index(l:bufs, l:cur_buf)
+  if l:idx < 0 | return | endif
+  let l:next_idx = l:idx + a:dir
+  if l:next_idx < 0 || l:next_idx >= len(l:bufs) | return | endif
+  let l:next_buf = l:bufs[l:next_idx]
+  for l:r in s:regions
+    if get(l:r, 'buf', -1) == l:next_buf
+      call cursor(1, l:r.start)
+      return
+    endif
+  endfor
 endfunction
 
 " ─────────────────────────────────────────────────────────────────────────────
@@ -210,7 +220,8 @@ let s:active_delete_key = ''
 function! s:setup_delete_key() abort
   let l:key = get(g:, 'miniBufAirlineDeleteKey', '<Delete>')
   if empty(l:key) | return | endif
-  execute 'nnoremap <silent> ' . l:key . ' :call minibufairline#close_buf(bufnr("%"))<CR>'
+  execute 'nnoremap <silent> ' . l:key
+        \ . ' :call minibufairline#close_buf(bufnr("%"))<CR>'
   let s:active_delete_key = l:key
 endfunction
 
@@ -223,13 +234,9 @@ endfunction
 
 " ─────────────────────────────────────────────────────────────────────────────
 " Highlight setup
-"
-" Defines all MBA_* highlight groups from the palette above.
-" Re-run on ColorScheme so the groups survive :colorscheme changes.
 " ─────────────────────────────────────────────────────────────────────────────
 
 function! minibufairline#setup_highlights() abort
-  " Base buffer-type groups
   for l:t in keys(s:BG)
     let l:extra = (l:t =~# '^act') ? ' cterm=bold gui=bold' : ''
     execute printf(
@@ -240,22 +247,15 @@ function! minibufairline#setup_highlights() abort
           \ l:extra)
   endfor
 
-  " Separator groups: MBA_sep_{left}_{right}
-  " The separator glyph sits between sections; its fg = left section's bg
-  " colour and its bg = right section's bg colour.  This creates the
-  " "arrow cut out of the left section" effect.
-  let l:all_types = keys(s:BG)
-  for l:left in l:all_types
-    for l:right in l:all_types
+  for l:left in keys(s:BG)
+    for l:right in keys(s:BG)
       if l:left ==# l:right
-        " Soft separator: same bg, slightly lighter fg so the thin glyph shows
         execute printf(
               \ 'hi MBA_sep_%s_%s ctermfg=%d ctermbg=%d guifg=%s guibg=%s',
               \ l:left, l:right,
               \ s:SOFT_SEP_FG[l:left][0], s:BG[l:left][0],
               \ s:SOFT_SEP_FG[l:left][1], s:BG[l:left][1])
       else
-        " Hard separator: fg = left bg, bg = right bg
         execute printf(
               \ 'hi MBA_sep_%s_%s ctermfg=%d ctermbg=%d guifg=%s guibg=%s',
               \ l:left, l:right,
@@ -267,102 +267,278 @@ function! minibufairline#setup_highlights() abort
 endfunction
 
 " ─────────────────────────────────────────────────────────────────────────────
-" Tabline rendering
+" Window management
 " ─────────────────────────────────────────────────────────────────────────────
 
-function! s:render(bufs) abort
-  let l:pl        = g:miniBufAirlinePowerline
-  let l:clickable = has('tablineat')
-  let l:line      = ''
+function! s:open_window() abort
+  let l:save_win = winnr()
 
-  " ── Prefix label ───────────────────────────────────────────────────────────
-  " Sits at position 0 and owns the click there, preventing Vim's built-in
-  " 'create new tab page' from firing when the user clicks near the left edge.
-  let l:pfx = get(g:, 'miniBufAirlinePrefix', ' ≡ ')
-  if !empty(l:pfx)
-    let l:first_type = s:buf_type(s:buf_state(a:bufs[0]))
-    if l:clickable
-      let l:line .= '%0@minibufairline#noop@'
+  if s:mbe_bufnr > 0 && bufexists(s:mbe_bufnr)
+    let l:mbe_win = bufwinnr(s:mbe_bufnr)
+    if l:mbe_win < 0
+      execute 'topleft 1split'
+      execute 'buffer ' . s:mbe_bufnr
+    else
+      execute l:mbe_win . 'wincmd w'
     endif
-    let l:line .= '%#MBA_prefix#' . l:pfx
-    if l:pl
-      let l:line .= '%#MBA_sep_prefix_' . l:first_type . '#' . s:G('sep_hard')
-    endif
-    if l:clickable
-      let l:line .= '%X'
-    endif
+  else
+    execute 'topleft 1split'
+    silent execute 'edit ' . s:MBE_NAME
+    let s:mbe_bufnr = bufnr('%')
+    call s:setup_mbe_buffer()
   endif
 
+  resize 1
+
+  " Return to the editing window
+  " (the save_win number may have shifted by +1 due to the new split)
+  execute (l:save_win + 1) . 'wincmd w'
+  call s:update()
+endfunction
+
+function! s:setup_mbe_buffer() abort
+  setlocal buftype=nofile bufhidden=hide noswapfile
+  setlocal nobuflisted nomodifiable
+  setlocal nonumber norelativenumber
+  setlocal nocursorline nocursorcolumn
+  setlocal nolist nospell nowrap
+  setlocal winfixheight
+  setlocal filetype=minibufairline
+
+  nnoremap <buffer> <silent> <CR>          :call minibufairline#select(0)<CR>
+  nnoremap <buffer> <silent> o             :call minibufairline#select(0)<CR>
+  nnoremap <buffer> <silent> s             :call minibufairline#select(1)<CR>
+  nnoremap <buffer> <silent> v             :call minibufairline#select(2)<CR>
+  nnoremap <buffer> <silent> d             :call minibufairline#close_at_cursor()<CR>
+  nnoremap <buffer> <silent> l             :call minibufairline#move_cursor(1)<CR>
+  nnoremap <buffer> <silent> h             :call minibufairline#move_cursor(-1)<CR>
+  nnoremap <buffer> <silent> <right>       :call minibufairline#move_cursor(1)<CR>
+  nnoremap <buffer> <silent> <left>        :call minibufairline#move_cursor(-1)<CR>
+  nnoremap <buffer> <silent> <2-LeftMouse> :call minibufairline#select(0)<CR>
+
+  " Optional single-click support (off by default to avoid stealing global mouse)
+  if get(g:, 'miniBufAirlineUseSingleClick', 0)
+    nnoremap <buffer> <silent> <LeftMouse>
+          \ <LeftMouse>:call minibufairline#select(0)<CR>
+  endif
+endfunction
+
+function! s:close_window() abort
+  if s:mbe_bufnr < 0 | return | endif
+  let l:win = bufwinnr(s:mbe_bufnr)
+  if l:win > 0
+    execute l:win . 'wincmd w'
+    close
+  endif
+  if bufexists(s:mbe_bufnr)
+    execute 'bwipeout! ' . s:mbe_bufnr
+  endif
+  let s:mbe_bufnr = -1
+endfunction
+
+" ─────────────────────────────────────────────────────────────────────────────
+" Content update
+" ─────────────────────────────────────────────────────────────────────────────
+
+function! s:update() abort
+  if s:updating | return | endif
+  let s:updating = 1
+
+  let l:mbe_win = bufwinnr(s:mbe_bufnr)
+  if l:mbe_win < 0
+    let s:updating = 0
+    return
+  endif
+
+  let l:bufs = s:listed_buffers()
+  let l:save_win = winnr()
+
+  execute l:mbe_win . 'wincmd w'
+
+  if empty(l:bufs)
+    setlocal modifiable
+    call setline(1, repeat(' ', winwidth(0)))
+    setlocal nomodifiable
+    call clearmatches()
+    call matchadd('MBA_fill', '.*', -1)
+  else
+    let [l:text, l:regions] = s:render_line(l:bufs)
+    let s:regions = l:regions
+
+    setlocal modifiable
+    call setline(1, l:text)
+    setlocal nomodifiable
+
+    call clearmatches()
+    " Fill background at lowest priority
+    call matchadd('MBA_fill', '.*', -1)
+    " Region highlights at default priority (10)
+    for l:r in l:regions
+      if !empty(l:r.hl) && l:r.start <= l:r.end
+        call matchaddpos(l:r.hl, [[1, l:r.start, l:r.end - l:r.start + 1]])
+      endif
+    endfor
+  endif
+
+  " Return to wherever we came from
+  execute l:save_win . 'wincmd w'
+
+  let s:updating = 0
+endfunction
+
+" ─────────────────────────────────────────────────────────────────────────────
+" Rendering — builds the display string and region map
+"
+" Tracks byte positions (not display columns) throughout, because:
+"   • len() counts bytes in Vim
+"   • matchaddpos [line, col, len] uses bytes
+"   • col('.') returns the byte column
+" This makes all three consistent for click detection.
+" ─────────────────────────────────────────────────────────────────────────────
+
+function! s:render_line(bufs) abort
+  let l:pl      = g:miniBufAirlinePowerline
+  let l:text    = ''
+  let l:regions = []
+  let l:bcol    = 1   " next byte column to write (1-indexed)
+
+  " ── Prefix ─────────────────────────────────────────────────────────────────
+  let l:pfx      = get(g:, 'miniBufAirlinePrefix', ' ≡ ')
+  let l:pfx_type = 'prefix'
+  if !empty(l:pfx)
+    let l:pfx_len = len(l:pfx)
+    call add(l:regions, {'start': l:bcol, 'end': l:bcol + l:pfx_len - 1,
+          \ 'hl': 'MBA_prefix', 'buf': -1})
+    let l:text .= l:pfx
+    let l:bcol += l:pfx_len
+  else
+    let l:pfx_type = ''
+  endif
+
+  " ── Buffer tabs ─────────────────────────────────────────────────────────────
   for l:i in range(len(a:bufs))
     let l:b    = a:bufs[l:i]
     let l:st   = s:buf_state(l:b)
     let l:type = s:buf_type(l:st)
 
-    " Type of the next tab (or fill) — needed for trailing separator colour
-    if l:i + 1 < len(a:bufs)
-      let l:next_type = s:buf_type(s:buf_state(a:bufs[l:i + 1]))
+    " Leading separator: from previous section into this tab
+    if l:i == 0
+      let l:prev_type = l:pfx_type
     else
-      let l:next_type = 'fill'
+      let l:prev_type = s:buf_type(s:buf_state(a:bufs[l:i - 1]))
     endif
 
-    " ── Start click region ─────────────────────────────────────────────────
-    if l:clickable
-      let l:line .= '%' . l:b . '@minibufairline#switch@'
-    endif
-
-    " ── Tab content ────────────────────────────────────────────────────────
-    let l:line .= '%#MBA_' . l:type . '#'
-    let l:line .= ' '
-
-    if g:miniBufAirlineShowBufNr
-      let l:line .= l:b . ' '
-    endif
-
-    if getbufvar(l:b, '&readonly')
-      let l:line .= s:G('lock') . ' '
-    endif
-
-    let l:line .= s:buf_name(l:b)
-
-    if g:miniBufAirlineShowModified && l:st.modified
-      let l:line .= ' ' . s:G('modified')
-    endif
-
-    if g:miniBufAirlineShowClose && l:st.active
-      let l:line .= ' ' . s:G('close')
-    endif
-
-    let l:line .= ' '
-
-    " ── Trailing separator (inside this tab's click region) ────────────────
-    " The arrow glyph visually "comes out of" this tab, so clicking it
-    " should switch to THIS buffer, not the next one.
-    if l:pl
-      let l:sep_hl   = 'MBA_sep_' . l:type . '_' . l:next_type
-      let l:sep_char = (l:type ==# l:next_type) ? s:G('sep_soft') : s:G('sep_hard')
-      let l:line .= '%#' . l:sep_hl . '#' . l:sep_char
-    else
-      " ASCII: pipe separator between tabs (not inside the last tab)
-      if l:next_type !=# 'fill'
-        let l:line .= '%#MBA_fill# ' . s:G('sep_soft') . ' '
+    if !empty(l:prev_type)
+      if l:pl
+        let l:sep = (l:prev_type ==# l:type)
+              \ ? s:G('sep_soft') : s:G('sep_hard')
+        let l:sep_hl  = 'MBA_sep_' . l:prev_type . '_' . l:type
+        let l:sep_len = len(l:sep)
+        call add(l:regions, {'start': l:bcol, 'end': l:bcol + l:sep_len - 1,
+              \ 'hl': l:sep_hl, 'buf': -1})
+        let l:text .= l:sep
+        let l:bcol += l:sep_len
+      else
+        " ASCII: plain space separator (no glyph between same-type tabs)
+        if l:i > 0
+          let l:pipe = ' | '
+          let l:pipe_len = len(l:pipe)
+          call add(l:regions, {'start': l:bcol, 'end': l:bcol + l:pipe_len - 1,
+                \ 'hl': 'MBA_fill', 'buf': -1})
+          let l:text .= l:pipe
+          let l:bcol += l:pipe_len
+        endif
       endif
     endif
 
-    " ── End click region ───────────────────────────────────────────────────
-    if l:clickable
-      let l:line .= '%X'
+    " Tab content — this is the region that maps to a buffer for click detection
+    let l:content = ' '
+    if g:miniBufAirlineShowBufNr
+      let l:content .= l:b . ' '
+    endif
+    if getbufvar(l:b, '&readonly')
+      let l:content .= s:G('lock') . ' '
+    endif
+    let l:content .= s:buf_name(l:b)
+    if g:miniBufAirlineShowModified && l:st.modified
+      let l:content .= ' ' . s:G('modified')
+    endif
+    if g:miniBufAirlineShowClose && l:st.active
+      let l:content .= ' ' . s:G('close')
+    endif
+    let l:content .= ' '
+
+    let l:content_len = len(l:content)
+    call add(l:regions, {'start': l:bcol, 'end': l:bcol + l:content_len - 1,
+          \ 'hl': 'MBA_' . l:type, 'buf': l:b})
+    let l:text .= l:content
+    let l:bcol += l:content_len
+
+    " Trailing separator: out of this tab into next (or fill)
+    " Sits inside this tab's logical region so clicking the arrow
+    " switches to THIS buffer, not the next.
+    if l:pl
+      let l:next_type = (l:i + 1 < len(a:bufs))
+            \ ? s:buf_type(s:buf_state(a:bufs[l:i + 1]))
+            \ : 'fill'
+      let l:sep = (l:type ==# l:next_type)
+            \ ? s:G('sep_soft') : s:G('sep_hard')
+      let l:sep_hl  = 'MBA_sep_' . l:type . '_' . l:next_type
+      let l:sep_len = len(l:sep)
+      call add(l:regions, {'start': l:bcol, 'end': l:bcol + l:sep_len - 1,
+            \ 'hl': l:sep_hl, 'buf': l:b})
+      let l:text .= l:sep
+      let l:bcol += l:sep_len
     endif
   endfor
 
-  " ── Fill ─────────────────────────────────────────────────────────────────
-  let l:line .= '%#MBA_fill#%='
+  " ── Fill ────────────────────────────────────────────────────────────────────
+  let l:mbe_win  = bufwinnr(s:mbe_bufnr)
+  let l:width    = (l:mbe_win > 0) ? winwidth(l:mbe_win) : 80
+  let l:fill_len = max([0, l:width - strwidth(l:text)])
+  if l:fill_len > 0
+    let l:fill = repeat(' ', l:fill_len)
+    call add(l:regions, {'start': l:bcol, 'end': l:bcol + l:fill_len - 1,
+          \ 'hl': 'MBA_fill', 'buf': -1})
+    let l:text .= l:fill
+  endif
 
-  return l:line
+  return [l:text, l:regions]
+endfunction
+
+" ─────────────────────────────────────────────────────────────────────────────
+" Click detection
+" ─────────────────────────────────────────────────────────────────────────────
+
+function! s:buf_at_col(byte_col) abort
+  " Walk regions; trailing separator regions carry the buffer they belong to.
+  for l:r in s:regions
+    if a:byte_col >= l:r.start && a:byte_col <= l:r.end
+      return get(l:r, 'buf', -1)
+    endif
+  endfor
+  return -1
 endfunction
 
 " ─────────────────────────────────────────────────────────────────────────────
 " Buffer helpers
 " ─────────────────────────────────────────────────────────────────────────────
+
+function! s:switch_to(bufnr) abort
+  " If cursor is in MBE window, jump to the editing window first
+  if bufnr('%') == s:mbe_bufnr
+    wincmd p
+    if winnr() == bufwinnr(s:mbe_bufnr)
+      for l:w in range(1, winnr('$'))
+        if l:w != bufwinnr(s:mbe_bufnr)
+          execute l:w . 'wincmd w'
+          break
+        endif
+      endfor
+    endif
+  endif
+  execute 'buffer ' . a:bufnr
+endfunction
 
 function! s:listed_buffers() abort
   let l:bufs = []
@@ -379,13 +555,14 @@ function! s:listed_buffers() abort
   return l:bufs
 endfunction
 
-" Skip empty unnamed buffers (Vim's startup scratch buffer).
-" Keep them if they have unsaved content so work is never silently hidden.
 function! s:buf_worth_showing(bufnr) abort
-  if bufname(a:bufnr) !=# ''
-    return 1
+  " Hide the MBE window buffer itself
+  if a:bufnr == s:mbe_bufnr | return 0 | endif
+  " Hide empty unnamed scratch buffers (Vim's startup buffer)
+  if bufname(a:bufnr) ==# '' && !getbufvar(a:bufnr, '&modified')
+    return 0
   endif
-  return !!getbufvar(a:bufnr, '&modified')
+  return 1
 endfunction
 
 function! s:cmp_by_name(a, b) abort
@@ -395,8 +572,12 @@ function! s:cmp_by_name(a, b) abort
 endfunction
 
 function! s:buf_state(bufnr) abort
+  " Use s:last_real_buf as the reference for "active" when we are inside the
+  " MBE window (bufnr('%') == s:mbe_bufnr during s:update()).
+  let l:active = (bufnr('%') == s:mbe_bufnr)
+        \ ? s:last_real_buf : bufnr('%')
   return {
-        \ 'active':   (a:bufnr == bufnr('%')),
+        \ 'active':   (a:bufnr == l:active),
         \ 'visible':  s:is_visible(a:bufnr),
         \ 'modified': !!getbufvar(a:bufnr, '&modified'),
         \ 'readonly': !!getbufvar(a:bufnr, '&readonly'),
@@ -406,7 +587,8 @@ endfunction
 function! s:is_visible(bufnr) abort
   let l:w = 1
   while l:w <= winnr('$')
-    if winbufnr(l:w) == a:bufnr
+    " Exclude the MBE window itself from "visible" counts
+    if winbufnr(l:w) == a:bufnr && l:w != bufwinnr(s:mbe_bufnr)
       return 1
     endif
     let l:w += 1
@@ -414,7 +596,6 @@ function! s:is_visible(bufnr) abort
   return 0
 endfunction
 
-" Map a state dict to one of the palette type keys
 function! s:buf_type(state) abort
   if a:state.active
     return a:state.modified ? 'actmod' : 'act'
@@ -425,15 +606,12 @@ function! s:buf_type(state) abort
   endif
 endfunction
 
-" Display name for a buffer: tail of the path, or [No Name] / [scratch]
 function! s:buf_name(bufnr) abort
   let l:name = bufname(a:bufnr)
   if empty(l:name)
-    let l:bt = getbufvar(a:bufnr, '&buftype')
-    return l:bt ==# 'nofile' ? '[scratch]' : '[No Name]'
+    return getbufvar(a:bufnr, '&buftype') ==# 'nofile' ? '[scratch]' : '[No Name]'
   endif
   let l:tail = fnamemodify(l:name, ':t')
-  " Show parent dir when the filename alone is ambiguous (duplicate basenames)
   for l:b in s:listed_buffers()
     if l:b != a:bufnr && fnamemodify(bufname(l:b), ':t') ==# l:tail
       return fnamemodify(l:name, ':p:~:.:h:t') . '/' . l:tail

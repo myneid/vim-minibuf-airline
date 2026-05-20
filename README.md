@@ -121,12 +121,18 @@ buffer list — while modernising the implementation:
 
 | Requirement | Notes |
 |---|---|
-| Vim 7.4 | Minimum; `autoload` and `%!func()` tabline |
-| Vim 7.4 patch 2311 | For mouse click support (`has('tablineat')`) |
+| Vim 7.4 | Minimum |
+| `set mouse=a` | For mouse click support (in your vimrc) |
 | Nerd Font / Powerline font | For arrow glyphs; set `g:miniBufAirlinePowerline=0` without one |
 
 The plugin works in both terminal Vim and gVim.  Neovim is supported but
 not the primary target.
+
+> **Note on clicking:** minibuf-airline uses a 1-line split window (the same
+> approach as the original MiniBufExpl) rather than Vim's `&tabline`.
+> This means double-clicking a buffer name always works regardless of Vim
+> version, and no `tablineat` feature is needed.  Enable single-click with
+> `let g:miniBufAirlineUseSingleClick = 1` in your vimrc.
 
 ---
 
