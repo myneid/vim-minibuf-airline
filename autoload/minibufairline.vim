@@ -265,7 +265,11 @@ endfunction
 
 function! s:render(bufs) abort
   let l:pl        = g:miniBufAirlinePowerline
-  let l:clickable = has('tablineat')
+  " has('tablineat') is the official check but returns 0 on Neovim and some
+  " Vim builds even though %N@Func@ works fine.  Cast the net wider.
+  let l:clickable = has('tablineat') || has('nvim')
+        \ || (v:version > 800)
+        \ || (v:version == 704 && has('patch-2311'))
   let l:line      = ''
   let l:prev_type = ''
 
@@ -273,6 +277,11 @@ function! s:render(bufs) abort
     let l:b    = a:bufs[l:i]
     let l:st   = s:buf_state(l:b)
     let l:type = s:buf_type(l:st)
+
+    " ── Start click region (wraps separator + content) ────────────────────
+    if l:clickable
+      let l:line .= '%' . l:b . '@minibufairline#switch@'
+    endif
 
     " ── Separator before this tab ──────────────────────────────────────────
     if !empty(l:prev_type)
@@ -282,13 +291,8 @@ function! s:render(bufs) abort
         let l:line .= '%#' . l:sep_hl . '#' . l:sep_char
       else
         " ASCII fallback: just a space-padded pipe
-        let l:line .= '%#MBA_fill# ' . s:G('sep_soft') . ' '
+        let l:line .= ' ' . s:G('sep_soft') . ' '
       endif
-    endif
-
-    " ── Start click region ─────────────────────────────────────────────────
-    if l:clickable
-      let l:line .= '%' . l:b . '@minibufairline#switch@'
     endif
 
     " ── Tab content ────────────────────────────────────────────────────────

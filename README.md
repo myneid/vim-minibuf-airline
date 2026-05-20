@@ -160,6 +160,9 @@ Copy `plugin/`, `autoload/`, and `doc/` into your `~/.vim/` directory, then:
 " Minimum .vimrc config — assumes a Nerd Font is active in your terminal
 let g:miniBufAirlinePowerline = 1   " set to 0 for ASCII mode
 
+" Enable mouse so you can click tabs to switch (left-click) or close (middle-click)
+set mouse=a
+
 nnoremap <silent> <Tab>      :MBANext<CR>
 nnoremap <silent> <S-Tab>    :MBAPrev<CR>
 nnoremap <silent> <Leader>w  :MBAClose<CR>
