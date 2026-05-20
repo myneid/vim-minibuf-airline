@@ -344,7 +344,7 @@ function! s:listed_buffers() abort
   let l:bufs = []
   let l:i = 1
   while l:i <= bufnr('$')
-    if buflisted(l:i)
+    if buflisted(l:i) && s:buf_worth_showing(l:i)
       call add(l:bufs, l:i)
     endif
     let l:i += 1
@@ -353,6 +353,15 @@ function! s:listed_buffers() abort
     call sort(l:bufs, function('s:cmp_by_name'))
   endif
   return l:bufs
+endfunction
+
+" Skip empty unnamed buffers (Vim's startup scratch buffer).
+" Keep them if they have unsaved content so work is never silently hidden.
+function! s:buf_worth_showing(bufnr) abort
+  if bufname(a:bufnr) !=# ''
+    return 1
+  endif
+  return !!getbufvar(a:bufnr, '&modified')
 endfunction
 
 function! s:cmp_by_name(a, b) abort
